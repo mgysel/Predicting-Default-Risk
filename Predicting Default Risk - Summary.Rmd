@@ -1,0 +1,194 @@
+---
+title: "Project 4: Predicting Default Risk"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+```{r echo=FALSE}
+# Load
+load("Predicting Default Risk.RData")
+```
+
+
+# Building the Training Set
+## Removal
+During the cleanup process, the following fields were removed for the following reasons:
+
+- Guarantors: Low variability, due to only 43 'Yes' values and 457 'None' values.
+- Duration-in-Current-address: Missing data, due to only 156 non-null values.
+- Concurrent-Credits: Low variability, due to all 500 records having a value of 'Other Banks/Depts'.
+- Occupation: Low variability, due to all 500 records having a value of 1.
+- Telephone: Unrelated, as the telephone number does not impact the credit-worthiness of a lendee.
+- Foreign-Worker: Low variability, due to only 19 2 values and 481 1 values.
+## Imputation
+Because all of the null Age-years values are Creditworthy applications, and skew the variables credit-amount and no-credits-at-this-bank, they were imputed with the median Age.years value of 33.
+
+# Business and Data Understanding
+A decision must be made on whether or not each of the 500 new loan applications can be approved. As a result, two main datasets must be gathered. The first must contain attributes that influence creditworthiness on all past applicants and the second must contain those same attributes for the new applicants. To determine the creditworthiness of each applicant from this data, binary classification models should be used, specifically logit regression, decision tree, random forest, and boosted models.
+
+# Train the Classification Models
+## Logit Regression Model
+### Significant Predictor Variables
+Per the Stepwise Regression output below, the model with the lowest AIC Value, 
+of 380.02, shows the most significant predictor variables to be credit amount, 
+account balance, and payment status of previous credit.
+```{r echo=FALSE}
+# Load dependencies
+library('BaylorEdPsych')
+library('MASS')
+
+# Create Model
+mylogit <- glm(credit.application.result ~ ., data=cd_train, family='binomial')
+step <- stepAIC(mylogit, direction='both')
+```
+
+### ROC Curve
+Per the ROC Curve below, the area under the curve is 0.782.
+```{r echo=FALSE}
+# Load dependencies
+library(pROC)
+
+# Score model for training set
+predict <- predict(step, cd_train, type='response')
+
+# ROC Curve
+g <- roc(credit.application.result ~ predict, data=cd_train, print.auc=TRUE)
+plot(g)
+auc(g)
+```
+
+### Confusion Matrix
+Per the confusion matrix below, the logit regression model produced an overall
+accuracy of 77%, with a 79% chance of predicting non-creditworthy applicants
+and a 63% chance of predicting creditworthy applicants.
+```{r echo=FALSE}
+cm.Logit
+```
+
+## Decision Tree Model
+### Significant Predictor Variables
+Per the Decision Tree variable importance output below, the most significant
+predictor variables are account balance, payment status of previous credit, and
+duration of credit month. 
+```{r echo=FALSE}
+dt.variable.importance
+```
+
+### ROC Curve
+Per the ROC Curve below, the area under the curve is 0.8174.
+```{r echo=FALSE}
+# Load dependencies
+library(pROC)
+
+# Score model for training set
+predict <- predict(mytree, cd_train)
+
+# ROC Curve
+g <- roc(credit.application.result ~ predict, data=cd_train)
+plot(g)
+auc(g)
+```
+
+### Confusion Matrix
+Per the confusion matrix below, the decision tree model produced an overall
+accuracy of 71%, with a 79% chance of predicting non-creditworthy applicants
+and a 44% chance of predicting creditworthy applicants.
+```{r echo=FALSE}
+cm.DecisionTree
+```
+
+
+## Random Forest Model
+### Significant Predictor Variables
+Per the Random Forest Model variable importance output below, the most 
+significant predictor variables are payment status of previous credit, account
+balance, and most valuable available asset.
+```{r echo=FALSE}
+# Load dependencies
+library('randomForest')
+
+# do.trace displays the error rate vs. sample size
+fit <- randomForest(credit.application.result ~ ., data=cd_train, importance=TRUE, ntree=100, do.trace=FALSE)
+
+varImpPlot(fit)
+```
+
+### ROC Curve
+Per the ROC Curve below, the area under the curve is 0.9998.
+```{r echo=FALSE}
+# Load dependencies
+library(pROC)
+
+# Score model for training set
+predict <- predict(fit, cd_train)
+
+# ROC Curve
+g <- roc(credit.application.result ~ predict, data=cd_train)
+plot(g)
+auc(g)
+```
+
+### Confusion Matrix
+Per the confusion matrix below, the random forest model produced an overall
+accuracy of 83%, with an 85% chance of predicting non-creditworthy applicants
+and a 72% chance of predicting creditworthy applicants.
+```{r echo=FALSE}
+cm.RandomForest
+```
+
+
+## Boosted Model
+### Significant Predictor Variables
+Per the Boosted Model variable importance output below, the most significant 
+predictor variables are account balanace, payment status of previous credit, 
+and credit amount.
+```{r echo=FALSE}
+# Dependencies
+library('gbm')
+
+# Boosted Model
+boost_model <- gbm(credit.application.result ~ ., data=cd_train, n.trees=1866)
+
+# Variable Importance Factors
+summary(boost_model)
+```
+
+### ROC Curve
+Per the ROC Curve below, the area under the curve is 0.7831.
+```{r echo=FALSE}
+# Load dependencies
+library(pROC)
+
+# Score model for training set
+predict <- predict.gbm(boost_model, newdata=cd_train, n.trees=1866, type='response')
+
+# ROC Curve
+g <- roc(credit.application.result ~ predict, data=cd_train)
+plot(g)
+auc(g)
+```
+
+### Confusion Matrix
+Per the confusion matrix below, the boosted model produced an overall accuracy 
+of 75%, with a 76% chance of predicting non-creditworthy applicants and a 55% 
+chance of predicting creditworthy applicants.
+```{r echo=FALSE}
+cm.BoostedModel
+```
+
+
+# Conclusions
+
+The relative importance of accurately predicting creditworthy and 
+non-creditworthy applicants should be inquired from the bank to determine 
+whether the model should be weighted toward creditworthy or non-creditworthy 
+applicants. Assuming these predictions are of equal importance, the Random 
+Forest Model was used because it is the most accurate model with an accuracy of 
+83%. The ROC Curve further cements this choice, because the area under the
+Random Forest Model Curve is the largest at 0.9998. Though the Random Forest 
+Model is the most accurate, the model is biased toward non-creditworthy 
+applicants with an accuracy of 85% (412 applicants not approved) and away from 
+creditworthy applicants with an accuracy of 72% (88 applicants approved).

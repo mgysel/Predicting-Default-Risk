@@ -1,0 +1,333 @@
+---
+title: "Predicting Default Risk"
+output: html_notebook
+---
+
+Classification Models
+1. Logistic Regression
+2. Decision Tree
+3. Random Forest
+4. Boosted Model
+
+
+Import Data
+```{r}
+cd <- read.csv('data/credit-data-clean.csv')
+prospects <- read.csv('data/prospects-data-clean.csv')
+
+# Check datatypes
+str(cd)
+# Change credit.application.result to numeric and 
+# installment.percent, most.valuable.available.asset, type.of.apartment to Factor
+# credit.application.result
+cd$credit.application.result <- as.numeric(cd$credit.application.result) - 1
+# installment.per.cent
+cd$installment.per.cent <- as.factor(cd$installment.per.cent)
+prospects$installment.per.cent <- as.factor(prospects$installment.per.cent)
+# most.valuable.available.asset
+cd$most.valuable.available.asset <- as.factor(cd$most.valuable.available.asset)
+prospects$most.valuable.available.asset <- as.factor(prospects$most.valuable.available.asset)
+# type.of.apartment
+cd$type.of.apartment <- as.factor(cd$type.of.apartment)
+prospects$type.of.apartment <- as.factor(prospects$type.of.apartment)
+# age.years to numeric
+cd$age.years <- as.numeric(cd$age.years)
+prospects$age.years <- as.numeric(prospects$age.years)
+```
+
+Correlation Between Variables
+```{r}
+# Load dependencies
+library(corrr)
+require(dplyr)
+require(MASS)
+
+# Check correlations of numeric variables
+dplyr::select(cd, duration.of.credit.month, credit.amount, age.years) %>% correlate()
+```
+The highest correlation is between duration.of.credit.month and credit.amount
+with a correlation of 0.574. As this is below 0.7, both variables were included.
+
+Train and Test Datasets
+```{r}
+# Train (70% of observations)
+cd_train <- sample_n(cd, round(0.7*nrow(cd)))
+# Test (30% of observations)
+cd_test <- cd[!(rownames(cd) %in% rownames(cd_train)),]
+```
+
+
+1. Logistic Regression
+
+Build Stepwise Logistic Regression Model
+```{r}
+# Load Dependencies
+library('BaylorEdPsych')
+
+# Stepwise Regression
+mylogit <- glm(credit.application.result ~ ., data=cd_train, family='binomial')
+step <- stepAIC(mylogit, direction='both')
+PseudoR2(step)
+```
+
+ROC Curve
+```{r}
+# Load dependencies
+library(pROC)
+
+# Score model for training set
+predict <- predict(step, cd_train, type='response')
+
+# ROC Curve
+g <- roc(credit.application.result ~ predict, data=cd_train, print.auc=TRUE)
+plot(g)
+auc(g)
+```
+
+Score the Model
+```{r}
+predict <- as.data.frame(predict(step, cd_test, type='response'))
+```
+
+Confusion Matrix
+```{r}
+# Load dependencies
+library(caret)
+
+# Rename column
+names(predict) <- 'Prediction'
+
+# Add new column that names each prediction
+predict$Prediction <- ifelse(predict$Prediction > 0.5, 1, 0)
+
+# Confusion Matrix
+cm.Logit <- confusionMatrix(as.factor(cd_test$credit.application.result), as.factor(predict$Prediction))
+cm.Logit
+```
+
+The Logit Regression Model has an accuracy of 0.76.
+
+
+2. Decision Tree
+
+Build decision Tree
+```{r}
+# Import libraries
+library(rpart)
+
+# Grow tree
+mytree <- rpart(credit.application.result ~ ., data=cd_train)
+
+# Display the results
+printcp(mytree)
+summary.mytree <- summary(mytree)
+dt.variable.importance <- summary.mytree$variable.importance
+```
+
+ROC Curve
+```{r}
+# Load dependencies
+library(pROC)
+
+# Score model for training set
+predict <- predict(mytree, cd_train)
+
+# ROC Curve
+g <- roc(credit.application.result ~ predict, data=cd_train)
+plot(g)
+auc(g)
+```
+
+Score Model
+```{r}
+# Load dependency
+library('caret')
+
+# Test Data
+predict <- data.frame(predict(mytree, cd_test))
+```
+
+Confusion Matrix
+```{r}
+# Rename column
+names(predict) <- 'Prediction'
+
+# Add new column that names each prediction
+predict$Prediction <- ifelse(predict$Prediction > 0.5, 1, 0)
+
+# Confusion matrix - Yes/no are actual. False/True are predicted
+cm.DecisionTree <- confusionMatrix(as.factor(cd_test$credit.application.result), as.factor(predict$Prediction))
+cm.DecisionTree
+```
+
+The Decision Tree Model has an accuracy of 0.753.
+
+
+3. Random Forest Model
+
+Build Random Forest
+```{r}
+# Load dependencies
+library('randomForest')
+
+# do.trace displays the error rate vs. sample size
+fit <- randomForest(credit.application.result ~ ., data=cd_train, importance=TRUE, ntree=100, do.trace=FALSE)
+```
+
+Variable Importance Plot
+```{r}
+varImpPlot(fit)
+```
+
+ROC Curve
+```{r}
+# Load dependencies
+library(pROC)
+
+# Score model for training set
+predict <- predict(fit, cd_train)
+
+# ROC Curve
+g <- roc(credit.application.result ~ predict, data=cd_train)
+plot(g)
+auc(g)
+```
+
+Score the Model
+```{r}
+# Predict test dataset
+predict <- data.frame(predict(fit, cd_test, type='class'))
+```
+
+Confusion Matrix
+```{r}
+# Rename column
+names(predict) <- 'Prediction'
+
+# Add new column that names each prediction
+predict$Prediction <- ifelse(predict$Prediction > 0.5, 1, 0)
+
+# Confusion matrix - Yes/no are actual. False/True are predicted
+cm.RandomForest <- confusionMatrix(as.factor(cd_test$credit.application.result), as.factor(predict$Prediction))
+cm.RandomForest
+```
+
+The Random Forest Model has an accuracy of 0.775.
+
+
+4. Boosted Model
+
+Build Boosted Model
+```{r}
+# Dependencies
+library('gbm')
+
+# Boosted Model
+boost_model <- gbm(credit.application.result ~ ., data=cd_train, n.trees=1866)
+
+# Check the best number of iterations
+best.iter = gbm.perf(boost_model)
+best.iter
+```
+
+Variable Importance Factors
+```{r}
+# Variable Importance Factors
+summary(boost_model)
+```
+
+ROC Curve
+```{r}
+# Load dependencies
+library(pROC)
+
+# Score model for training set
+predict <- predict.gbm(boost_model, newdata=cd_train, n.trees=1866, type='response')
+
+# ROC Curve
+g <- roc(credit.application.result ~ predict, data=cd_train)
+plot(g)
+auc(g)
+```
+
+Score the Model
+```{r}
+# Score the model
+predict <- data.frame(predict.gbm(boost_model, newdata=cd_test, n.trees=1866, type='response'))
+
+# Rename column
+names(predict) <- 'Prediction'
+
+# Add new column that names each prediction
+predict$Prediction <- ifelse(predict$Prediction > 0.5, 1, 0)
+```
+
+Confusion Matrix
+```{r}
+# Confusion matrix - Yes/no are actual. False/True are predicted
+cm.BoostedModel <- confusionMatrix(as.factor(cd_test$credit.application.result), as.factor(predict$Prediction))
+```
+
+The Boosted Model has an accuracy of 0.773.
+
+The Random Forest Model was the most accurate with an accuracy of 77.5%, with
+an accuracy of predicting Creditworthy applicants of 82.7% and an accuracy of predicting
+Non-Creditworthy applicants of 63.0%.
+
+Random Forest Model applied to all data
+
+Build Random Forest
+```{r}
+# Load dependencies
+library('randomForest')
+
+# do.trace displays the error rate vs. sample size
+fit <- randomForest(credit.application.result ~ ., data=cd, importance=TRUE, ntree=100, do.trace=FALSE)
+```
+
+Variable Importance Plot
+```{r}
+varImpPlot(fit)
+```
+
+Score the Model against itself
+```{r}
+# Predict test dataset
+predict <- data.frame(predict(fit, cd, type='class'))
+```
+
+Confusion Matrix
+```{r}
+# Rename column
+names(predict) <- 'Prediction'
+
+# Add new column that names each prediction
+predict$Prediction <- ifelse(predict$Prediction > 0.5, 1, 0)
+
+# Confusion matrix - Yes/no are actual. False/True are predicted
+confusionMatrix(as.factor(cd$credit.application.result), as.factor(predict$Prediction))
+```
+
+The model has an accuracy of 98.6% scored against itself.
+
+
+Score the Prospects dataset
+```{r}
+# Make sure cd and prospects have same levels for factor variables
+levels(prospects$purpose) <- levels(cd$purpose)
+
+# Predict test dataset
+predict <- data.frame(predict(fit, prospects, type='class'))
+
+# Rename column
+names(predict) <- 'Prediction'
+
+# Add new column that names each prediction
+predict$Prediction <- ifelse(predict$Prediction > 0.5, 1, 0)
+count(subset(predict, Prediction == 1))
+```
+
+Save File
+```{r}
+save.image(file = "Predicting Default Risk.RData")
+```
